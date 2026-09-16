@@ -1,5 +1,5 @@
-const STORAGE_KEY = 'senzeyn_fps_enabled';
-const g = id => document.getElementById(id);
+const STORAGE_KEY = "senzeyn_fps_enabled";
+const g = (id) => document.getElementById(id);
 
 let _updateBlocked = false;
 
@@ -7,17 +7,20 @@ let _updateBlocked = false;
   function _applyBlock(cfg) {
     _updateBlocked = true;
     if (document.body) showUpdateOverlay(cfg);
-    else document.addEventListener('DOMContentLoaded', () => showUpdateOverlay(cfg));
+    else
+      document.addEventListener("DOMContentLoaded", () =>
+        showUpdateOverlay(cfg),
+      );
   }
 
-  chrome.storage.local.get('update.result', (res) => {
-    const cfg = res['update.result']?.data ?? null;
+  chrome.storage.local.get("update.result", (res) => {
+    const cfg = res["update.result"]?.data ?? null;
     if (cfg?.blocked === true) _applyBlock(cfg);
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local' || !changes['update.result']) return;
-    const cfg = changes['update.result'].newValue?.data ?? null;
+    if (area !== "local" || !changes["update.result"]) return;
+    const cfg = changes["update.result"].newValue?.data ?? null;
     if (cfg?.blocked === true && !_updateBlocked) {
       _applyBlock(cfg);
     } else if (cfg?.blocked === false && _updateBlocked) {
@@ -28,15 +31,15 @@ let _updateBlocked = false;
 })();
 
 function showUpdateOverlay(cfg) {
-  if (document.getElementById('szn-update-overlay')) return;
+  if (document.getElementById("szn-update-overlay")) return;
 
   const updateUrl = cfg?.update_url;
-  const message   = cfg?.update_message;
-  const info      = cfg?.info_message;
-  const toggle    = cfg?.toggle_message;
+  const message = cfg?.update_message;
+  const info = cfg?.info_message;
+  const toggle = cfg?.toggle_message;
 
-  const overlay = document.createElement('div');
-  overlay.id = 'szn-update-overlay';
+  const overlay = document.createElement("div");
+  overlay.id = "szn-update-overlay";
   overlay.innerHTML = `
     <div class="upd-card">
 
@@ -68,19 +71,19 @@ function showUpdateOverlay(cfg) {
 
   document.body.appendChild(overlay);
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => overlay.classList.add('upd-visible'));
+    requestAnimationFrame(() => overlay.classList.add("upd-visible"));
   });
 }
 
 function removeUpdateOverlay() {
-  const el = document.getElementById('szn-update-overlay');
+  const el = document.getElementById("szn-update-overlay");
   if (el) el.remove();
 }
 
 (function injectUpdateStyles() {
-  if (document.getElementById('szn-update-style')) return;
-  const s = document.createElement('style');
-  s.id = 'szn-update-style';
+  if (document.getElementById("szn-update-style")) return;
+  const s = document.createElement("style");
+  s.id = "szn-update-style";
   s.textContent = `
     #szn-update-overlay {
       position: fixed; inset: 0; z-index: 99999;
@@ -171,16 +174,18 @@ function removeUpdateOverlay() {
 })();
 
 function renderTitle() {
-  const word = 'Senzeyn X Tiktok';
-  const el = document.getElementById('h1Top');
+  const word = "Tiktod HD mm1rza";
+  const el = document.getElementById("h1Top");
   if (!el) return;
-  el.innerHTML = '';
-  word.split('').forEach((ch, i) => {
-    const span = document.createElement('span');
-    span.className = 'h1-char';
+  el.innerHTML = "";
+  word.split("").forEach((ch, i) => {
+    const span = document.createElement("span");
+    span.className = "h1-char";
     span.textContent = ch;
-    if (ch === 'X') span.style.margin = '0 5px';
-    span.style.animationDelay = renderTitle._first ? (0.18 + i * 0.07) + 's' : '0s';
+    if (ch === "X") span.style.margin = "0 5px";
+    span.style.animationDelay = renderTitle._first
+      ? 0.18 + i * 0.07 + "s"
+      : "0s";
     el.appendChild(span);
   });
   renderTitle._first = false;
@@ -188,13 +193,13 @@ function renderTitle() {
 renderTitle._first = true;
 renderTitle();
 
-document.addEventListener('DOMContentLoaded', () => {
-  const featToggle = g('featToggle');
-  const featBody   = g('featBody');
+document.addEventListener("DOMContentLoaded", () => {
+  const featToggle = g("featToggle");
+  const featBody = g("featBody");
   if (featToggle && featBody) {
-    featToggle.addEventListener('click', () => {
-      const open = featBody.classList.toggle('open');
-      featToggle.classList.toggle('open', open);
+    featToggle.addEventListener("click", () => {
+      const open = featBody.classList.toggle("open");
+      featToggle.classList.toggle("open", open);
     });
   }
 });
@@ -202,190 +207,214 @@ document.addEventListener('DOMContentLoaded', () => {
 let isOnTargetPage = false;
 
 function setStatusUI(onTarget) {
-  if (typeof window._diExpand === 'function') {
+  if (typeof window._diExpand === "function") {
     window._diExpand({ holdMs: 2200 });
   }
 
   if (onTarget) {
-    setInjectBadge('active');
+    setInjectBadge("active");
   } else {
-    setInjectBadge('standby');
+    setInjectBadge("standby");
   }
 }
 
 function setInjectBadge(state) {
-  const label         = g('injectText');
-  const expandedTitle = g('diExpandedTitle');
-  const expandedSub   = g('diExpandedSub');
-  const island        = g('diIsland');
+  const label = g("injectText");
+  const expandedTitle = g("diExpandedTitle");
+  const expandedSub = g("diExpandedSub");
+  const island = g("diIsland");
 
-  if (island) island.classList.remove('injected', 'standby');
+  if (island) island.classList.remove("injected", "standby");
 
-  if (state === 'active') {
-    if (label)         label.textContent = 'Active';
-    if (expandedTitle) expandedTitle.textContent = 'System Active';
-    if (expandedSub)   expandedSub.textContent   = 'Ready to Upload ↗';
-    if (island)        island.classList.add('injected');
-
-  } else if (state === 'standby') {
-    if (label)         label.textContent = 'Standby';
-    if (expandedTitle) expandedTitle.textContent = 'System Ready';
-    if (expandedSub)   expandedSub.textContent   = 'Open TikTok Upload Page ↗';
-    if (island)        island.classList.add('standby');
+  if (state === "active") {
+    if (label) label.textContent = "Active";
+    if (expandedTitle) expandedTitle.textContent = "System Active";
+    if (expandedSub) expandedSub.textContent = "Ready to Upload ↗";
+    if (island) island.classList.add("injected");
+  } else if (state === "standby") {
+    if (label) label.textContent = "Standby";
+    if (expandedTitle) expandedTitle.textContent = "System Ready";
+    if (expandedSub) expandedSub.textContent = "Open TikTok Upload Page ↗";
+    if (island) island.classList.add("standby");
   }
 }
 
 function getActiveTab() {
-  return new Promise(resolve => {
-    chrome.tabs.query({ active: true, currentWindow: true }, tabs => resolve(tabs[0] || null));
+  return new Promise((resolve) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) =>
+      resolve(tabs[0] || null),
+    );
   });
 }
 
 let _lastClick = 0;
-document.addEventListener('click', (e) => {
+document.addEventListener("click", (e) => {
   const now = Date.now();
   const throttled = now - _lastClick < 80;
   _lastClick = now;
 
-  const wave = document.createElement('div');
-  wave.className = 'shockwave';
-  wave.style.left = e.clientX + 'px';
-  wave.style.top  = e.clientY + 'px';
+  const wave = document.createElement("div");
+  wave.className = "shockwave";
+  wave.style.left = e.clientX + "px";
+  wave.style.top = e.clientY + "px";
   document.body.appendChild(wave);
   setTimeout(() => wave.remove(), 500);
 
   if (throttled) return;
   const count = 3;
   for (let i = 0; i < count; i++) {
-    const spark = document.createElement('div');
-    spark.className = 'spark-particle';
-    spark.style.left = e.clientX + 'px';
-    spark.style.top  = e.clientY + 'px';
+    const spark = document.createElement("div");
+    spark.className = "spark-particle";
+    spark.style.left = e.clientX + "px";
+    spark.style.top = e.clientY + "px";
     document.body.appendChild(spark);
     const angle = Math.random() * Math.PI * 2;
-    const vel   = Math.random() * 40 + 15;
-    spark.animate([
-      { transform: 'translate(0,0) scale(1)', opacity: 1 },
-      { transform: `translate(${Math.cos(angle)*vel}px,${Math.sin(angle)*vel}px) scale(0)`, opacity: 0 }
-    ], { duration: 360 + Math.random()*140, easing: 'cubic-bezier(0,.9,.57,1)' })
-      .onfinish = () => spark.remove();
+    const vel = Math.random() * 40 + 15;
+    spark.animate(
+      [
+        { transform: "translate(0,0) scale(1)", opacity: 1 },
+        {
+          transform: `translate(${Math.cos(angle) * vel}px,${Math.sin(angle) * vel}px) scale(0)`,
+          opacity: 0,
+        },
+      ],
+      {
+        duration: 360 + Math.random() * 140,
+        easing: "cubic-bezier(0,.9,.57,1)",
+      },
+    ).onfinish = () => spark.remove();
   }
 });
 
-document.addEventListener('DOMContentLoaded', async () => {
-
-  document.querySelectorAll('.header, .card, .footer').forEach((el, i) => {
-    el.style.animationDelay = (0.15 + i * 0.09) + 's';
-    el.classList.add('slide-in-anim');
+document.addEventListener("DOMContentLoaded", async () => {
+  document.querySelectorAll(".header, .card, .footer").forEach((el, i) => {
+    el.style.animationDelay = 0.15 + i * 0.09 + "s";
+    el.classList.add("slide-in-anim");
   });
 
   chrome.storage.local.set({ [STORAGE_KEY]: true });
 
   const tab = await getActiveTab();
   if (tab) {
-    isOnTargetPage = !!(tab.url && (tab.url.includes('/upload') || tab.url.includes('/creator-center')));
-    setInjectBadge(isOnTargetPage ? 'active' : 'standby');
+    isOnTargetPage = !!(
+      tab.url &&
+      (tab.url.includes("/upload") || tab.url.includes("/creator-center"))
+    );
+    setInjectBadge(isOnTargetPage ? "active" : "standby");
 
     if (isOnTargetPage) {
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: 'MAIN',
-        func: () => { if (window.onBypass) window.onBypass(); }
-      }).catch(() => {});
+      chrome.scripting
+        .executeScript({
+          target: { tabId: tab.id },
+          world: "MAIN",
+          func: () => {
+            if (window.onBypass) window.onBypass();
+          },
+        })
+        .catch(() => {});
     }
   }
 
   setStatusUI(isOnTargetPage);
 
-  const bypassToggle = g('customToggle1');
-  const bypassCard   = g('customCard1');
-  const bypassSub    = g('customCard1Sub');
+  const bypassToggle = g("customToggle1");
+  const bypassCard = g("customCard1");
+  const bypassSub = g("customCard1Sub");
 
   if (bypassToggle && bypassCard) {
-    const bRes = await chrome.storage.local.get(['bypass_enabled', 'remote_v7_patch']);
-    let isRemoteEnabled = bRes['remote_v7_patch'] !== false;
-    let isBypassOn = bRes['bypass_enabled'] !== false;
+    const bRes = await chrome.storage.local.get([
+      "bypass_enabled",
+      "remote_v7_patch",
+    ]);
+    let isRemoteEnabled = bRes["remote_v7_patch"] !== false;
+    let isBypassOn = bRes["bypass_enabled"] !== false;
 
     const updateBypassUI = (remoteOn, bypassOn) => {
       if (!remoteOn) {
         bypassToggle.checked = false;
         bypassToggle.disabled = true;
-        bypassCard.classList.remove('border-on');
-        bypassCard.classList.add('locked-card');
+        bypassCard.classList.remove("border-on");
+        bypassCard.classList.add("locked-card");
         if (bypassSub) {
-          bypassSub.style.display = 'none';
-          bypassSub.textContent = '';
-          bypassSub.style.color = '';
+          bypassSub.style.display = "none";
+          bypassSub.textContent = "";
+          bypassSub.style.color = "";
         }
       } else {
         bypassToggle.disabled = false;
         bypassToggle.checked = bypassOn;
-        bypassCard.classList.remove('locked-card');
-        bypassCard.classList.toggle('border-on', bypassOn);
+        bypassCard.classList.remove("locked-card");
+        bypassCard.classList.toggle("border-on", bypassOn);
         if (bypassSub) {
-          bypassSub.style.display = 'none';
-          bypassSub.textContent = '';
-          bypassSub.style.color = '';
+          bypassSub.style.display = "none";
+          bypassSub.textContent = "";
+          bypassSub.style.color = "";
         }
       }
     };
 
     updateBypassUI(isRemoteEnabled, isBypassOn);
 
-    bypassToggle.addEventListener('change', async () => {
+    bypassToggle.addEventListener("change", async () => {
       if (!isRemoteEnabled) {
         bypassToggle.checked = false;
         updateBypassUI(isRemoteEnabled, isBypassOn);
         return;
       }
       isBypassOn = bypassToggle.checked;
-      chrome.storage.local.set({ 'bypass_enabled': isBypassOn });
+      chrome.storage.local.set({ bypass_enabled: isBypassOn });
       updateBypassUI(isRemoteEnabled, isBypassOn);
     });
 
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && changes.remote_v7_patch) {
+      if (area === "local" && changes.remote_v7_patch) {
         isRemoteEnabled = changes.remote_v7_patch.newValue !== false;
         updateBypassUI(isRemoteEnabled, isBypassOn);
       }
     });
   }
 
-  const wmToggle = g('customToggle2');
-  const wmSub    = g('customCard2Sub');
+  const wmToggle = g("customToggle2");
+  const wmSub = g("customCard2Sub");
 
   if (wmToggle) {
-    const wmResult = await chrome.storage.local.get(['wm_enabled']);
-    const wmOn = wmResult['wm_enabled'] !== false;
+    const wmResult = await chrome.storage.local.get(["wm_enabled"]);
+    const wmOn = wmResult["wm_enabled"] !== false;
     wmToggle.checked = wmOn;
-    g('customCard2')?.classList.toggle('watermark-on', wmOn);
+    g("customCard2")?.classList.toggle("watermark-on", wmOn);
     if (wmSub) {
-      wmSub.style.display = 'none';
-      wmSub.textContent = '';
+      wmSub.style.display = "none";
+      wmSub.textContent = "";
     }
 
-    wmToggle.addEventListener('change', async () => {
+    wmToggle.addEventListener("change", async () => {
       const next = wmToggle.checked;
-      chrome.storage.local.set({ 'wm_enabled': next });
-      g('customCard2')?.classList.toggle('watermark-on', next);
+      chrome.storage.local.set({ wm_enabled: next });
+      g("customCard2")?.classList.toggle("watermark-on", next);
 
       const tab = await getActiveTab();
-      if (tab && tab.url && (tab.url.includes('/upload') || tab.url.includes('/creator-center'))) {
-        chrome.tabs.sendMessage(tab.id, { type: 'WM_SET_ACTIVE', value: next }).catch(() => {});
+      if (
+        tab &&
+        tab.url &&
+        (tab.url.includes("/upload") || tab.url.includes("/creator-center"))
+      ) {
+        chrome.tabs
+          .sendMessage(tab.id, { type: "WM_SET_ACTIVE", value: next })
+          .catch(() => {});
       }
     });
   }
 });
 
 chrome.runtime.onMessage.addListener((message) => {
-  if (message.type === 'PAGE_STATUS') {
+  if (message.type === "PAGE_STATUS") {
     const injected = message.injected;
     isOnTargetPage = injected;
-    setInjectBadge(injected ? 'active' : 'standby');
+    setInjectBadge(injected ? "active" : "standby");
     setStatusUI(injected);
   }
 
-  if (message.type === 'UPDATE_STATUS') {
+  if (message.type === "UPDATE_STATUS") {
     if (message.blocked && !_updateBlocked) {
       _updateBlocked = true;
       showUpdateOverlay(message.cfg);
