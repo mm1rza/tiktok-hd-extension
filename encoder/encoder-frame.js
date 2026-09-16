@@ -174,7 +174,7 @@ async function handleEncode(file, mode) {
       {
         type: "ENCODE_DONE",
         arrayBuffer,
-        fileName: `${baseName}-SenzeEXT.mp4`,
+        fileName: `${baseName}.mp4`,
         mimeType: mime,
         mode,
       },
