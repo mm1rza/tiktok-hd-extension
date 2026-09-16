@@ -308,36 +308,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  const wmToggle = g("customToggle2");
-  const wmSub = g("customCard2Sub");
-
-  if (wmToggle) {
-    const wmResult = await chrome.storage.local.get(["wm_enabled"]);
-    const wmOn = wmResult["wm_enabled"] !== false;
-    wmToggle.checked = wmOn;
-    g("customCard2")?.classList.toggle("watermark-on", wmOn);
-    if (wmSub) {
-      wmSub.style.display = "none";
-      wmSub.textContent = "";
-    }
-
-    wmToggle.addEventListener("change", async () => {
-      const next = wmToggle.checked;
-      chrome.storage.local.set({ wm_enabled: next });
-      g("customCard2")?.classList.toggle("watermark-on", next);
-
-      const tab = await getActiveTab();
-      if (
-        tab &&
-        tab.url &&
-        (tab.url.includes("/upload") || tab.url.includes("/creator-center"))
-      ) {
-        chrome.tabs
-          .sendMessage(tab.id, { type: "WM_SET_ACTIVE", value: next })
-          .catch(() => {});
-      }
-    });
-  }
+  chrome.storage.local.set({ wm_enabled: false });
 });
 
 chrome.runtime.onMessage.addListener((message) => {
