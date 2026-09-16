@@ -3,76 +3,10 @@ const g = (id) => document.getElementById(id);
 
 let _updateBlocked = false;
 
-(function _initBlockGuard() {
-  function _applyBlock(cfg) {
-    _updateBlocked = true;
-    if (document.body) showUpdateOverlay(cfg);
-    else
-      document.addEventListener("DOMContentLoaded", () =>
-        showUpdateOverlay(cfg),
-      );
-  }
-
-  chrome.storage.local.get("update.result", (res) => {
-    const cfg = res["update.result"]?.data ?? null;
-    if (cfg?.blocked === true) _applyBlock(cfg);
-  });
-
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes["update.result"]) return;
-    const cfg = changes["update.result"].newValue?.data ?? null;
-    if (cfg?.blocked === true && !_updateBlocked) {
-      _applyBlock(cfg);
-    } else if (cfg?.blocked === false && _updateBlocked) {
-      _updateBlocked = false;
-      removeUpdateOverlay();
-    }
-  });
-})();
+(function _initBlockGuard() {})();
 
 function showUpdateOverlay(cfg) {
-  if (document.getElementById("szn-update-overlay")) return;
-
-  const updateUrl = cfg?.update_url;
-  const message = cfg?.update_message;
-  const info = cfg?.info_message;
-  const toggle = cfg?.toggle_message;
-
-  const overlay = document.createElement("div");
-  overlay.id = "szn-update-overlay";
-  overlay.innerHTML = `
-    <div class="upd-card">
-
-      <div class="upd-icon-wrap">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="1.7"
-             stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="17 8 12 3 7 8"/>
-          <line x1="12" y1="3" x2="12" y2="15"/>
-        </svg>
-      </div>
-
-      <div class="upd-badge">${info}</div>
-      <p class="upd-msg">${message}</p>
-      <div class="upd-ver">
-      <a href="${updateUrl}" target="_blank" class="upd-btn">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="2.2"
-             stroke-linecap="round" stroke-linejoin="round">
-          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-          <polyline points="15 3 21 3 21 9"/>
-          <line x1="10" y1="14" x2="21" y2="3"/>
-        </svg>
-        ${toggle}
-      </a>
-    </div>
-  `;
-
-  document.body.appendChild(overlay);
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => overlay.classList.add("upd-visible"));
-  });
+  return;
 }
 
 function removeUpdateOverlay() {

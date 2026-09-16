@@ -53,11 +53,7 @@
 
   window.setBadgeLanguage = function () {};
 
-  window.addEventListener('senzeyn:blocked', function () {
-    window.createBadge && window.createBadge();
-    window.showBadge && window.showBadge();
-    window.setBadgeBlocked && window.setBadgeBlocked();
-  }, { once: true });
+  window.addEventListener('senzeyn:blocked', function () {}, { once: true });
 
   window.createBadge = function () {
     if (getEl('fps-badge')) return;

@@ -22,10 +22,6 @@ function _semverLt(a, b) {
 }
 
 function _isBlocked(cfg) {
-  if (!cfg) return false;
-  if (cfg.update_required === true) return true;
-  if (Array.isArray(cfg.blacklisted_versions) && cfg.blacklisted_versions.includes(CURRENT_VERSION)) return true;
-  if (cfg.min_version && _semverLt(CURRENT_VERSION, cfg.min_version)) return true;
   return false;
 }
 
@@ -43,43 +39,13 @@ function broadcastToPopup(msg) {
   chrome.runtime.sendMessage(msg).catch(() => {});
 }
 
-async function injectBlockedToAllTabs() {
-  const tabs = await chrome.tabs.query({});
-  for (const tab of tabs) {
-    if (!tab.id || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) continue;
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      world: 'MAIN',
-      func: () => {
-        window.__SENZEYN_BLOCKED__ = true;
-        window.dispatchEvent(new CustomEvent('senzeyn:blocked'));
-      },
-    }).catch(() => {});
-  }
-}
+async function injectBlockedToAllTabs() {}
 
-let _swLastBlocked = null;
+let _swLastBlocked = false;
 
 async function _swPollUpdate() {
   try {
-    const res = await fetch(UPDATE_CONFIG_URL + '?t=' + Date.now(), {
-      cache: 'no-cache',
-      credentials: 'omit',
-    });
-    if (!res.ok) return;
-
-    const enc = await res.json();
-    const cfg = _decryptConfig(enc);
-    const blocked  = _isBlocked(cfg);
-    const enriched = { ...cfg, blocked, current_version: CURRENT_VERSION };
-
-    chrome.storage.local.set({ 'update.result': { ts: Date.now(), data: enriched } });
-
-    if (blocked !== _swLastBlocked) {
-      _swLastBlocked = blocked;
-      broadcastToAll({ type: 'UPDATE_STATUS', blocked, cfg: blocked ? enriched : null });
-      if (blocked) await injectBlockedToAllTabs();
-    }
+    chrome.storage.local.set({ 'update.result': { ts: Date.now(), data: { blocked: false, current_version: CURRENT_VERSION } } });
   } catch (_) {}
 }
 
