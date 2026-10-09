@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Tiktod HD mm1rza",
-  "version": "5.9",
+  "name": "SenzeEXT",
+  "version": "6.0",
   "description": "Tools For High Quality Uploads on Tiktok",
   "permissions": [
     "declarativeNetRequest",
@@ -13,9 +13,7 @@
     "tabs"
   ],
   "host_permissions": [
-    "*://*.tiktok.com/*",
-    "*://*.tiktok.com/tiktokstudio/*",
-    "*://*.tiktokcdn.com/*"
+    "*://*.tiktok.com/*"
   ],
   "background": {
     "service_worker": "src/worker.js"
@@ -60,7 +58,9 @@
         "encoder/encoder-frame.html",
         "encoder/encoder-frame.js",
         "encoder/core/*",
-        "encoder/ffmpeg/*"
+        "encoder/ffmpeg/*",
+        "encoder/encoder-worker.js",
+        "encoder/encode-job.js"
       ]
     }
   ],

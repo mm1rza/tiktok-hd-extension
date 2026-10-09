@@ -1,10 +1,6 @@
-import { createFFmpeg } from "./ffmpeg/ffmpeg.js";
-
 function isTikTokOrigin(origin) {
-  if (origin === "https://tiktok.com") return true;
-  return /^https:\/\/[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.tiktok\.com$/.test(
-    origin,
-  );
+  if (origin === 'https://tiktok.com') return true;
+  return /^https:\/\/[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.tiktok\.com$/.test(origin);
 }
 
 function detectParentOrigin() {
@@ -14,233 +10,134 @@ function detectParentOrigin() {
       if (isTikTokOrigin(url.origin)) return url.origin;
     }
   } catch (_) {}
-  return "*";
+  return '*';
 }
 
 let _parentOrigin = detectParentOrigin();
 
 function postToParent(msg, transfer = []) {
-  window.parent.postMessage(msg, "*", transfer);
+  window.parent.postMessage(msg, '*', transfer);
 }
-
-let ffmpeg = null;
-let ffmpegLoaded = false;
 
 let _encodeQueue = Promise.resolve();
 
 function enqueueEncode(task) {
-  const run = () =>
-    task().catch((err) => {
-      postToParent({
-        type: "ENCODE_ERROR",
-        message: err?.message ?? String(err),
-      });
-    });
+  const run = () => task().catch((err) => {
+    postToParent({ type: 'ENCODE_ERROR', message: err?.message ?? String(err) });
+  });
   _encodeQueue = _encodeQueue.then(run, run);
   return _encodeQueue;
 }
 
-async function ensureFFmpegLoaded() {
-  if (ffmpegLoaded) return;
+const WORKER_READY_TIMEOUT_MS = 8000;
 
-  const coreBaseURL = chrome.runtime.getURL("encoder/core");
+function runJob(job) {
+  return new Promise((resolve) => {
+    let finished = false;
+    let worker = null;
+    let readyTimer = null;
+    let jobSent = false;
 
-  ffmpeg = createFFmpeg({
-    log: false,
-    corePath: `${coreBaseURL}/ffmpeg-core.js`,
-    wasmPath: `${coreBaseURL}/ffmpeg-core.wasm`,
-    workerPath: `${coreBaseURL}/ffmpeg-core.worker.js`,
-    logger: ({ type, message }) => {
-      postToParent({ type: "ENCODE_LOG", message: `[${type}] ${message}` });
-    },
-    progress: ({ ratio }) => {
-      if (typeof ratio === "number" && ratio >= 0 && isFinite(ratio)) {
-        postToParent({ type: "ENCODE_PROGRESS", ratio });
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(readyTimer);
+      try { worker && worker.terminate(); } catch (_) {}
+      worker = null;
+      resolve();
+    };
+
+    const emit = (msg, transfer) => {
+      postToParent(msg, transfer || []);
+      if (msg.type === 'ENCODE_DONE' || msg.type === 'ENCODE_ERROR') finish();
+    };
+
+    const fallbackInFrame = (reason) => {
+      if (finished) return;
+      clearTimeout(readyTimer);
+      try { worker && worker.terminate(); } catch (_) {}
+      worker = null;
+      postToParent({ type: 'ENCODE_LOG', message: `[frame] worker tidak tersedia (${reason}), encode di frame` });
+      if (typeof globalThis.runEncodeJob !== 'function') {
+        emit({ type: 'ENCODE_ERROR', message: `Encoder tidak bisa dimulai (${reason})` });
+        return;
       }
-    },
+      globalThis.runEncodeJob(job, emit);
+    };
+
+    try {
+      worker = new Worker(new URL('./encoder-worker.js', import.meta.url));
+    } catch (err) {
+      fallbackInFrame(err?.message || 'Worker constructor gagal');
+      return;
+    }
+
+    readyTimer = setTimeout(() => fallbackInFrame('timeout'), WORKER_READY_TIMEOUT_MS);
+
+    worker.onmessage = (e) => {
+      const msg = e.data;
+      if (!msg || typeof msg !== 'object') return;
+
+      if (msg.type === 'WORKER_READY') {
+        if (jobSent) return;
+        jobSent = true;
+        clearTimeout(readyTimer);
+        worker.postMessage(
+          { type: 'ENCODE', ab: job.ab, fileName: job.fileName },
+          [job.ab]
+        );
+        return;
+      }
+      emit(msg, msg.type === 'ENCODE_DONE' && msg.arrayBuffer ? [msg.arrayBuffer] : []);
+    };
+
+    worker.onerror = (e) => {
+      const reason = e?.message || 'worker error';
+      if (e && e.preventDefault) e.preventDefault();
+      if (!jobSent) fallbackInFrame(reason);
+      else emit({ type: 'ENCODE_ERROR', message: `Encoder crash: ${reason}` });
+    };
+
+    worker.onmessageerror = () => {
+      if (jobSent) emit({ type: 'ENCODE_ERROR', message: 'Encoder message error' });
+    };
   });
-
-  await ffmpeg.load();
-  ffmpegLoaded = true;
-}
-
-function guessInputName(file) {
-  const dot = file.name.lastIndexOf(".");
-  const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : ".mp4";
-  return "input" + ext;
-}
-
-function getOptimalThreads() {
-  const cores =
-    typeof navigator !== "undefined" && navigator.hardwareConcurrency
-      ? navigator.hardwareConcurrency
-      : 4;
-
-  const threads = Math.max(1, Math.floor(cores / 2));
-  return threads;
-}
-
-function buildRemuxArgs(inputName, outputName) {
-  return [
-    "-i",
-    inputName,
-    "-c",
-    "copy",
-    "-threads",
-    String(getOptimalThreads()),
-    "-movflags",
-    "+faststart",
-    outputName,
-  ];
-}
-
-function buildReencodeArgs(inputName, outputName) {
-  return [
-    "-i",
-    inputName,
-    "-c:v",
-    "libx264",
-    "-preset",
-    "ultrafast",
-    "-crf",
-    "18",
-    "-max_muxing_queue_size",
-    "1024",
-    "-threads",
-    String(getOptimalThreads()),
-    "-movflags",
-    "+faststart",
-    outputName,
-  ];
-}
-
-async function handleEncode(file, mode) {
-  let inputName = "";
-  let outputName = "";
-
-  try {
-    await ensureFFmpegLoaded();
-
-    inputName = guessInputName(file);
-    outputName = "output.mp4";
-
-    const fileBuffer = await file.arrayBuffer();
-    ffmpeg.FS("writeFile", inputName, new Uint8Array(fileBuffer));
-
-    const args =
-      mode === "reencode"
-        ? buildReencodeArgs(inputName, outputName)
-        : buildRemuxArgs(inputName, outputName);
-
-    postToParent({
-      type: "ENCODE_LOG",
-      message: `[mode=${mode}] $ ffmpeg ${args.join(" ")}`,
-    });
-
-    await ffmpeg.run(...args);
-
-    const data = ffmpeg.FS("readFile", outputName);
-
-    if (!data || data.byteLength === 0) {
-      throw new Error(`corrupt file mode=${mode}. Encode Failed.`);
-    }
-
-    const arrayBuffer = data.buffer.slice(
-      data.byteOffset,
-      data.byteOffset + data.byteLength,
-    );
-
-    try {
-      ffmpeg.FS("unlink", outputName);
-    } catch (_) {}
-    try {
-      ffmpeg.FS("unlink", inputName);
-    } catch (_) {}
-
-    outputName = "";
-    inputName = "";
-
-    if (arrayBuffer.byteLength !== data.byteLength) {
-      throw new Error(
-        `corrupt file ${data.byteLength} byte, ` +
-          `copy ${arrayBuffer.byteLength} byte.`,
-      );
-    }
-
-    const mime = "video/mp4";
-    const baseName = file.name.replace(/\.[^/.]+$/, "");
-
-    postToParent(
-      {
-        type: "ENCODE_DONE",
-        arrayBuffer,
-        fileName: `${baseName}.mp4`,
-        mimeType: mime,
-        mode,
-      },
-      [arrayBuffer],
-    );
-  } catch (err) {
-    postToParent({
-      type: "ENCODE_ERROR",
-      message: err?.message ?? String(err),
-    });
-  } finally {
-    if (ffmpeg) {
-      if (inputName) {
-        try {
-          ffmpeg.FS("unlink", inputName);
-        } catch (_) {}
-      }
-      if (outputName) {
-        try {
-          ffmpeg.FS("unlink", outputName);
-        } catch (_) {}
-      }
-    }
-  }
 }
 
 let _bootAcked = false;
 
-window.addEventListener("message", (event) => {
+window.addEventListener('message', (event) => {
   const msg = event.data;
-  if (!msg || typeof msg !== "object") return;
-  if (msg.type === "BOOT_ACK") {
+  if (!msg || typeof msg !== 'object') return;
+  if (msg.type === 'BOOT_ACK') {
     _bootAcked = true;
   }
 });
 
-window.addEventListener("message", (event) => {
+window.addEventListener('message', (event) => {
   if (!isTikTokOrigin(event.origin)) return;
 
-  if (_parentOrigin === "*") _parentOrigin = event.origin;
+  if (_parentOrigin === '*') _parentOrigin = event.origin;
 
   const msg = event.data;
-  if (!msg || typeof msg !== "object") return;
-  if (msg.type === "BOOT_ACK") return;
+  if (!msg || typeof msg !== 'object') return;
+  if (msg.type === 'BOOT_ACK') return;
 
-  if (msg.type === "ENCODE_START") {
-    const mode = msg.mode === "reencode" ? "reencode" : "remux";
+  if (msg.type === 'ENCODE_START') {
+    const fileName = msg.fileName || 'input.mp4';
 
     if (msg.ab instanceof ArrayBuffer) {
-      const file = new File([msg.ab], msg.fileName || "input.mp4", {
-        type: msg.fileType || "video/mp4",
-      });
-      enqueueEncode(() => handleEncode(file, mode));
+      enqueueEncode(() => runJob({ ab: msg.ab, fileName }));
     } else if (msg.file instanceof File) {
-      enqueueEncode(() => handleEncode(msg.file, mode));
+      enqueueEncode(async () => runJob({ ab: await msg.file.arrayBuffer(), fileName: msg.file.name || fileName }));
     } else {
-      postToParent({
-        type: "ENCODE_ERROR",
-        message: "ENCODE_START: Failed File",
-      });
+      postToParent({ type: 'ENCODE_ERROR', message: 'ENCODE_START: Failed File' });
     }
   }
 });
 
 queueMicrotask(() => {
-  postToParent({ type: "FRAME_BOOTED" });
+  postToParent({ type: 'FRAME_BOOTED' });
 
   let attempts = 0;
   const MAX_ATTEMPTS = 20;
@@ -249,7 +146,7 @@ queueMicrotask(() => {
       clearInterval(retryId);
       return;
     }
-    postToParent({ type: "FRAME_BOOTED" });
+    postToParent({ type: 'FRAME_BOOTED' });
     attempts++;
   }, 100);
 });

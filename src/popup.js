@@ -1,7 +1,7 @@
 (function () {
 
   let _statusText = 'SYSTEM READY';
-  let _isActive   = false;
+  let _isActive = false;
 
   function getEl(id) { return document.getElementById(id); }
 
@@ -15,7 +15,7 @@
   window._badge_update = function (status) {
     const badge = getEl('fps-badge');
     if (!badge) return;
-    _isActive   = status === 'active';
+    _isActive = status === 'active';
     _statusText = _isActive ? 'SYSTEM ACTIVE' : 'SYSTEM OFF';
     badge.classList.remove('is-blocked');
     badge.dataset.status = status;
@@ -25,7 +25,7 @@
   window.setBadgeBlocked = function () {
     const badge = getEl('fps-badge');
     if (!badge) return;
-    _isActive   = false;
+    _isActive = false;
     _statusText = 'UPDATE REQUIRED';
     badge.dataset.status = 'blocked';
     badge.classList.remove('is-active');
@@ -51,9 +51,13 @@
     badge.classList.remove('by-visible');
   };
 
-  window.setBadgeLanguage = function () {};
+  window.setBadgeLanguage = function () { };
 
-  window.addEventListener('senzeyn:blocked', function () {}, { once: true });
+  window.addEventListener('senzeyn:blocked', function () {
+    window.createBadge && window.createBadge();
+    window.showBadge && window.showBadge();
+    window.setBadgeBlocked && window.setBadgeBlocked();
+  }, { once: true });
 
   window.createBadge = function () {
     if (getEl('fps-badge')) return;

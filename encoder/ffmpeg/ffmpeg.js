@@ -1,31 +1,18 @@
-const readFromBlobOrFile = (blob) =>
-  new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload  = () => resolve(fr.result);
-    fr.onerror = () => reject(Error('File could not be read'));
-    fr.readAsArrayBuffer(blob);
-  });
+(function (g) {
 
-export const fetchFile = async (_data) => {
-  if (typeof _data === 'undefined') return new Uint8Array();
-  let data = _data;
-  if (typeof _data === 'string') {
-    if (/data:_data\/([a-zA-Z]*);base64,([^"]*)/.test(_data)) {
-      data = atob(_data.split(',')[1]).split('').map((c) => c.charCodeAt(0));
-    } else {
-      data = await (await fetch(_data)).arrayBuffer();
-    }
-  } else if (_data instanceof File || _data instanceof Blob) {
-    data = await readFromBlobOrFile(_data);
+const wasmCache = new Map();
+
+const loadWasmBinary = (url) => {
+  if (!wasmCache.has(url)) {
+    const p = (async () => {
+      const resp = await fetch(url);
+      if (resp.ok === false) throw Error(`Gagal memuat ${url} (${resp.status})`);
+      return resp.arrayBuffer();
+    })();
+    p.catch(() => wasmCache.delete(url));
+    wasmCache.set(url, p);
   }
-  return new Uint8Array(data);
-};
-
-// helpers
-const toBlobURL = async (url, mimeType) => {
-  const buf  = await (await fetch(url)).arrayBuffer();
-  const blob = new Blob([buf], { type: mimeType });
-  return URL.createObjectURL(blob);
+  return wasmCache.get(url);
 };
 
 const parseArgs = (Core, args) => {
@@ -40,32 +27,52 @@ const parseArgs = (Core, args) => {
   return [args.length, argsPtr];
 };
 
+const RE_DURATION = /^\s*Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/;
+const RE_STATS    = /^\s*(?:frame|size|Lsize)=/;
+const RE_TIME     = /time=\s*(\d+):(\d+):(\d+(?:\.\d+)?)/;
+const RE_SIZE     = /size=\s*(\d+)\s*kB/i;
+const hms = (h, m, s) => parseFloat(h) * 3600 + parseFloat(m) * 60 + parseFloat(s);
+
+const makeLineDevice = (onLine) => {
+  const decoder = new TextDecoder('utf-8');
+  let bytes = [];
+  const flush = () => {
+    if (!bytes.length) return;
+    const msg = decoder.decode(new Uint8Array(bytes));
+    bytes = [];
+    if (msg.trim().length) onLine(msg);
+  };
+  const put = (b) => {
+    if (b === null || b === undefined || b === 10 || b === 13) { flush(); return; }
+    b &= 0xff;
+    if (b !== 0) bytes.push(b);
+  };
+  put.flush = flush;
+  return put;
+};
+
 // createFFmpeg
 const defaultArgs = ['-nostdin', '-y'];
 
-export const createFFmpeg = (_options = {}) => {
+const createFFmpeg = (_options = {}) => {
   const {
     log: optLog       = false,
     logger: optLogger = () => {},
     progress: optProg = () => {},
     corePath:   _corePath,
     wasmPath:   _wasmPath,
-    workerPath: _workerPath,
   } = _options;
 
-  let Core = null, ffmpeg = null;
+  let Core = null, ffmpeg = null, argv0 = [], flushLines = () => {};
   let runResolve = null, runReject = null, running = false;
   let customLogger = optLogger, logging = optLog, progress = optProg;
-  let duration = 0, frames = 0, readFrames = false, ratio = 0;
+
+  // state progress (di-reset tiap run)
+  let duration = 0, ratio = 0, lastSent = -1, inputSize = 0;
 
   const log = (type, message) => {
     customLogger({ type, message });
     if (logging) console.log(`[ffmpeg][${type}] ${message}`);
-  };
-
-  const ts2sec = (ts) => {
-    const [h, m, s] = ts.split(':');
-    return parseFloat(h) * 3600 + parseFloat(m) * 60 + parseFloat(s);
   };
 
   const detectCompletion = (message) => {
@@ -74,80 +81,123 @@ export const createFFmpeg = (_options = {}) => {
     }
   };
 
-  const parseProgress = (message, prog) => {
+  const report = (r, extra = {}) => {
+    if (typeof r !== 'number' || !Number.isFinite(r)) return;
+    r = Math.min(Math.max(r, 0), 1);
+    if (r <= lastSent) return;
+    lastSent = r; ratio = r;
+    progress({ ratio: r, ...extra });
+  };
+
+  const parseProgress = (message) => {
     if (typeof message !== 'string') return;
-    if (message.startsWith('  Duration')) {
-      const d = ts2sec(message.split(', ')[0].split(': ')[1]);
-      prog({ duration: d, ratio });
-      if (duration === 0 || duration > d) { duration = d; readFrames = true; }
-    } else if (readFrames && message.startsWith('    Stream')) {
-      const m = message.match(/([\d.]+) fps/);
-      frames = m ? duration * parseFloat(m[1]) : 0;
-      readFrames = false;
-    } else if (message.startsWith('frame') || message.startsWith('size')) {
-      const ts = message.split('time=')[1]?.split(' ')[0];
-      if (!ts) return;
-      const t = ts2sec(ts), m = message.match(/frame=\s*(\d+)/);
-      ratio = (frames && m) ? Math.min(parseFloat(m[1]) / frames, 1) : t / duration;
-      prog({ ratio, time: t });
-    } else if (message.startsWith('video:')) {
-      prog({ ratio: 1 }); duration = 0;
+
+    if (!duration) {
+      const d = RE_DURATION.exec(message);
+      if (d) {
+        const v = hms(d[1], d[2], d[3]);
+        if (v > 0) { duration = v; report(0, { duration }); }
+        return;
+      }
     }
+
+    if (RE_STATS.test(message)) {
+      let r = NaN;
+      const t = RE_TIME.exec(message);
+      if (t && duration > 0) r = hms(t[1], t[2], t[3]) / duration;
+
+      if (!Number.isFinite(r) && inputSize > 0) {
+        const s = RE_SIZE.exec(message);
+        if (s) r = (parseInt(s[1], 10) * 1024) / inputSize;
+      }
+      if (Number.isFinite(r)) report(Math.min(r, 0.99));
+      return;
+    }
+
+    if (message.startsWith('video:')) report(1);
   };
 
   const parseMessage = ({ type, message }) => {
     log(type, message);
-    parseProgress(message, progress);
+    parseProgress(message);
     detectCompletion(message);
   };
 
   const load = async () => {
     if (Core !== null) throw Error('ffmpeg.wasm sudah di-load.');
 
-    if (typeof window.createFFmpegCore === 'undefined') {
+    if (typeof g.createFFmpegCore === 'undefined') {
       throw Error(
-        'window.createFFmpegCore tidak ditemukan. ' +
+        'createFFmpegCore tidak ditemukan. ' +
         'Pastikan ffmpeg-core.js dimuat sebagai classic <script> sebelum module ini.'
       );
     }
 
-    log('info', 'load ffmpeg-core 0.11.6 (multi-thread)...');
+    log('info', 'load ffmpeg-core 0.11.1 (single-thread)...');
 
-    const corePath   = _corePath;
-    const wasmPath   = _wasmPath   ?? corePath.replace(/ffmpeg-core\.js$/, 'ffmpeg-core.wasm');
-    const workerPath = _workerPath ?? corePath.replace(/ffmpeg-core\.js$/, 'ffmpeg-core.worker.js');
+    const corePath = _corePath;
+    const wasmPath = _wasmPath ?? corePath.replace(/ffmpeg-core\.js$/, 'ffmpeg-core.wasm');
 
-    const wasmBlobURL = await toBlobURL(wasmPath, 'application/wasm');
+    const wasmBinary = await loadWasmBinary(wasmPath);
 
-    log('info', `wasm   → blob:...`);
-    log('info', `worker → ${workerPath} (extension origin)`);
+    const outDev = makeLineDevice((message) => parseMessage({ type: 'ffout', message }));
+    const errDev = makeLineDevice((message) => parseMessage({ type: 'fferr', message }));
+    flushLines = () => { outDev.flush(); errDev.flush(); };
 
-    Core = await window.createFFmpegCore({
+    Core = await g.createFFmpegCore({
       mainScriptUrlOrBlob: corePath,
+      wasmBinary,
+      // device per-byte: flush baris di '\n' dan '\r'
+      stdout: outDev,
+      stderr: errDev,
+      // fallback kalau core tidak memakai device di atas
       printErr: (msg) => parseMessage({ type: 'fferr', message: msg }),
       print:    (msg) => parseMessage({ type: 'ffout', message: msg }),
-      locateFile: (path) => {
-        if (path.endsWith('ffmpeg-core.wasm'))      return wasmBlobURL;
-        if (path.endsWith('ffmpeg-core.worker.js')) return workerPath;
-        return path;
-      },
+      stdin: () => null,
     });
 
-    ffmpeg = Core.cwrap('proxy_main', 'number', ['number', 'number']);
-    log('info', 'ffmpeg-core Ready (multi-thread)');
+    // build single-thread meng-export 'main', build multi-thread 'proxy_main'
+    const entry = typeof Core._proxy_main === 'function' ? 'proxy_main' : 'main';
+    ffmpeg = Core.cwrap(entry, 'number', ['number', 'number']);
+    // 'main' butuh argv[0] = nama program; 'proxy_main'
+    argv0 = entry === 'main' ? ['./ffmpeg'] : [];
+    log('info', 'ffmpeg-core Ready (single-thread)');
   };
 
   const isLoaded = () => Core !== null;
+
+  const setInputSize = (n) => { inputSize = Number(n) > 0 ? Number(n) : 0; };
 
   const run = (..._args) => {
     log('info', `run: ${_args.join(' ')}`);
     if (!Core)   throw Error('Belum di-load, panggil load() dulu.');
     if (running) throw Error('Proses');
     running = true;
+    duration = 0; ratio = 0; lastSent = -1;
     return new Promise((resolve, reject) => {
-      const args = [...defaultArgs, ..._args].filter((s) => s.length !== 0);
+      const args = [...argv0, ...defaultArgs, ..._args].filter((s) => s.length !== 0);
       runResolve = resolve; runReject = reject;
-      ffmpeg(...parseArgs(Core, args));
+      try {
+        const rc = ffmpeg(...parseArgs(Core, args));
+        flushLines();
+        if (runResolve) {
+          const done = runResolve, fail = runReject;
+          runResolve = null; runReject = null; running = false;
+          if (rc === 0 || rc === undefined) done();
+          else fail(new Error(`ffmpeg exit code ${rc}`));
+        }
+      } catch (e) {
+        try { flushLines(); } catch (_) {}
+        const done = runResolve;
+        const fail = runReject;
+        runResolve = null; runReject = null; running = false;
+        if (e && e.name === 'ExitStatus') {
+          if (e.status === 0) { if (done) done(); }
+          else if (fail) fail(new Error(`ffmpeg exit code ${e.status}`));
+        } else if (fail) {
+          fail(e instanceof Error ? e : new Error(String(e)));
+        }
+      }
     });
   };
 
@@ -174,5 +224,8 @@ export const createFFmpeg = (_options = {}) => {
   const setLogger   = (fn)  => { customLogger = fn;  };
   const setLogging  = (val) => { logging      = val; };
 
-  return { load, isLoaded, run, FS, exit, setProgress, setLogger, setLogging };
+  return { load, isLoaded, run, FS, exit, setProgress, setLogger, setLogging, setInputSize };
 };
+
+  g.createFFmpeg = createFFmpeg;
+})(typeof globalThis !== 'undefined' ? globalThis : self);

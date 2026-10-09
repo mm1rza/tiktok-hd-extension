@@ -1,5 +1,5 @@
 const UPDATE_CACHE_KEY = atob('dXBkYXRlLmNhY2hl');
-const UPDATE_CONFIG_URL = atob('aHR0cHM6Ly91cC5zZW56ZXluZmZ4LndvcmtlcnMuZGV2L3ZlcnNpb24uanNvbg==');
+const UPDATE_CONFIG_URL = atob('aHR0cHM6Ly9hcGkuc2VuemV5bmZmeC53b3JrZXJzLmRldi9jaGVja3Vw');
 const CURRENT_VERSION = chrome.runtime.getManifest().version;
 
 function _decryptConfig(enc) {
@@ -22,31 +22,65 @@ function _semverLt(a, b) {
 }
 
 function _isBlocked(cfg) {
+  if (!cfg) return false;
+  if (cfg.update_required === true) return true;
+  if (Array.isArray(cfg.blacklisted_versions) && cfg.blacklisted_versions.includes(CURRENT_VERSION)) return true;
+  if (cfg.min_version && _semverLt(CURRENT_VERSION, cfg.min_version)) return true;
   return false;
 }
 
 function broadcastToAll(msg) {
-  chrome.runtime.sendMessage(msg).catch(() => {});
+  chrome.runtime.sendMessage(msg).catch(() => { });
   chrome.tabs.query({}, (tabs) => {
     for (const tab of tabs) {
       if (!tab.id) continue;
-      chrome.tabs.sendMessage(tab.id, msg).catch(() => {});
+      chrome.tabs.sendMessage(tab.id, msg).catch(() => { });
     }
   });
 }
 
 function broadcastToPopup(msg) {
-  chrome.runtime.sendMessage(msg).catch(() => {});
+  chrome.runtime.sendMessage(msg).catch(() => { });
 }
 
-async function injectBlockedToAllTabs() {}
+async function injectBlockedToAllTabs() {
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    if (!tab.id || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) continue;
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: 'MAIN',
+      func: () => {
+        window.__SENZEYN_BLOCKED__ = true;
+        window.dispatchEvent(new CustomEvent('senzeyn:blocked'));
+      },
+    }).catch(() => { });
+  }
+}
 
-let _swLastBlocked = false;
+let _swLastBlocked = null;
 
 async function _swPollUpdate() {
   try {
-    chrome.storage.local.set({ 'update.result': { ts: Date.now(), data: { blocked: false, current_version: CURRENT_VERSION } } });
-  } catch (_) {}
+    const res = await fetch(UPDATE_CONFIG_URL + '?t=' + Date.now(), {
+      cache: 'no-cache',
+      credentials: 'omit',
+    });
+    if (!res.ok) return;
+
+    const enc = await res.json();
+    const cfg = _decryptConfig(enc);
+    const blocked = _isBlocked(cfg);
+    const enriched = { ...cfg, blocked, current_version: CURRENT_VERSION };
+
+    chrome.storage.local.set({ 'update.result': { ts: Date.now(), data: enriched } });
+
+    if (blocked !== _swLastBlocked) {
+      _swLastBlocked = blocked;
+      broadcastToAll({ type: 'UPDATE_STATUS', blocked, cfg: blocked ? enriched : null });
+      if (blocked) await injectBlockedToAllTabs();
+    }
+  } catch (_) { }
 }
 
 chrome.alarms.create('szn-update-poll', { periodInMinutes: 10 });
@@ -77,8 +111,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === 'INJECT_MAIN_WORLD') {
     chrome.scripting.executeScript({
-      target: { tabId: message.tabId }, world: 'MAIN', func: (code) => { eval(code); }, args: [message.code],
-    }).then(() => { sendResponse({ ok: true }); }).catch(err => { sendResponse({ ok: false, error: err.message }); }); return true;
+      target: { tabId: message.tabId },
+      world: 'MAIN',
+      func: (code) => {
+        try {
+          (0, eval)(code);
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, error: (e && e.message) || String(e) };
+        }
+      },
+      args: [message.code],
+    }).then((results) => {
+      const res = results?.[0]?.result;
+      sendResponse(res ?? { ok: false, error: 'executeScript no result' });
+    }).catch(err => { sendResponse({ ok: false, error: err.message }); }); return true;
   }
   if (message.type === 'RUN_V7_PATCH') {
     const tabId = sender.tab?.id;
@@ -89,7 +136,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       target: { tabId, allFrames: false },
       world: 'MAIN',
       func: async (objectUrl, fileName, fileType) => {
-        const POLL_MS  = 100; const MAX_WAIT = 15_000; let waited = 0;
+        const POLL_MS = 100; const MAX_WAIT = 15_000; let waited = 0;
         while (typeof V7Patch !== 'function') {
           if (waited >= MAX_WAIT) return { ok: false, error: 'V7Patch timeout' };
           await new Promise(r => setTimeout(r, POLL_MS)); waited += POLL_MS;
@@ -111,9 +158,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (!input) return { ok: false, error: 'input[type=file] tidak ada' };
           const dt = new DataTransfer(); dt.items.add(patchedFile);
           const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'files');
-          if (nativeSetter?.set) { try { nativeSetter.set.call(input, dt.files); } catch (_) {} }
-          else { try { Object.defineProperty(input, 'files', { value: dt.files, configurable: true }); } catch (_) {} }
-          input.dispatchEvent(new Event('input',  { bubbles: true, cancelable: true }));
+          if (nativeSetter?.set) { try { nativeSetter.set.call(input, dt.files); } catch (_) { } }
+          else { try { Object.defineProperty(input, 'files', { value: dt.files, configurable: true }); } catch (_) { } }
+          input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
           input.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
           return { ok: true };
         } catch (err) { return { ok: false, error: err.message }; }
@@ -127,7 +174,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === 'PAGE_STATUS') { broadcastToPopup({ type: 'PAGE_STATUS', injected: message.injected }); sendResponse({ ok: true }); return true; }
   if (message.type === 'INJECT_SCRIPT' && message.code && sender.tab?.id) {
-    chrome.scripting.executeScript({ target: { tabId: sender.tab.id, allFrames: false }, world: 'MAIN', func: (code) => { try { (new Function(code))(); } catch (e) {} }, args: [message.code], })
-    .then(() => { sendResponse({ ok: true }); }).catch((err) => { sendResponse({ ok: false, error: err.message }); }); return true;
+    chrome.scripting.executeScript({ target: { tabId: sender.tab.id, allFrames: false }, world: 'MAIN', func: (code) => { try { (new Function(code))(); } catch (e) { } }, args: [message.code], })
+      .then(() => { sendResponse({ ok: true }); }).catch((err) => { sendResponse({ ok: false, error: err.message }); }); return true;
   }
 });
