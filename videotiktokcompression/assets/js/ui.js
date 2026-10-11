@@ -1,0 +1,114 @@
+// Sparkles Efek
+(function () {
+  const container = document.getElementById('sparklesContainer');
+  const SPARK_COUNT = 18;
+
+  function rand(min, max) {
+    return Math.random() * (max - min) + min;
+  }
+
+  function createSpark() {
+    const el = document.createElement('div');
+    el.className = 'spark';
+
+    const top   = rand(2, 98).toFixed(1);
+    const left  = rand(2, 98).toFixed(1);
+    const dur   = rand(5, 12).toFixed(1);
+    const delay = rand(-10, 0).toFixed(1);
+    const size  = rand(8, 15).toFixed(0);
+
+    el.style.cssText = `top:${top}%;left:${left}%;`;
+    el.style.setProperty('--dur',   dur   + 's');
+    el.style.setProperty('--delay', delay + 's');
+    el.style.setProperty('--sz',    size  + 'px');
+
+    container.appendChild(el);
+  }
+
+  for (let i = 0; i < SPARK_COUNT; i++) createSpark();
+})();
+
+
+// Title Animation
+function renderTitle() {
+  const word = 'TikTok Video HD';
+  const el = document.getElementById('h1Top');
+  if (!el) return;
+  el.innerHTML = '';
+  word.split('').forEach((ch, i) => {
+    const span = document.createElement('span');
+    span.className = 'h1-char';
+    span.textContent = ch;
+    if (ch === 'X') span.style.margin = '0 7px';
+    span.style.animationDelay = renderTitle._first ? (0.18 + i * 0.07) + 's' : '0s';
+    el.appendChild(span);
+  });
+  renderTitle._first = false;
+}
+renderTitle._first = true;
+renderTitle();
+
+
+// Dynamic Island
+(function () {
+  const island = document.getElementById('diIsland');
+  if (!island) return;
+
+  let expandTimer   = null;
+  let collapseTimer = null;
+
+  function setPhase(phase) {
+    island.classList.remove('phase-compact', 'phase-expanded');
+    if (phase) island.classList.add('phase-' + phase);
+  }
+
+  island.classList.add('di-enter');
+  setTimeout(() => {
+    setPhase('expanded');
+    collapseTimer = setTimeout(() => setPhase('compact'), 2400);
+  }, 1000);
+
+  island.addEventListener('mouseenter', () => {
+    clearTimeout(collapseTimer);
+    clearTimeout(expandTimer);
+    setPhase('expanded');
+  });
+
+  island.addEventListener('mouseleave', () => {
+    collapseTimer = setTimeout(() => setPhase('compact'), 200);
+  });
+
+  let touched = false;
+  island.addEventListener('click', (e) => {
+    if (island.classList.contains('phase-compact') || !island.classList.contains('phase-expanded')) {
+      if (!touched) {
+        e.preventDefault();
+        touched = true;
+        clearTimeout(collapseTimer);
+        setPhase('expanded');
+        setTimeout(() => { touched = false; }, 2500);
+        collapseTimer = setTimeout(() => setPhase('compact'), 2500);
+      }
+    }
+  });
+})();
+
+
+// Info Toggle
+const toggle = document.getElementById('instructionToggle');
+const body   = document.getElementById('instructionContent');
+toggle.addEventListener('click', () => {
+  const open = body.classList.toggle('open');
+  toggle.classList.toggle('open', open);
+});
+
+
+// Tutorial Toggle
+const tutorialToggle  = document.getElementById('tutorialToggle');
+const tutorialContent = document.getElementById('tutorialContent');
+const tutorialVideo   = tutorialContent.querySelector('video');
+tutorialToggle.addEventListener('click', () => {
+  const open = tutorialContent.classList.toggle('open');
+  tutorialToggle.classList.toggle('open', open);
+  if (!open && tutorialVideo) tutorialVideo.pause();
+});
