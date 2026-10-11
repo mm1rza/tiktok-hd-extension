@@ -71,6 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
     { el: document.getElementById('fpsConverterCard'), delay: 575 },
     { el: document.getElementById('moreInfoDivider'), delay: 615 },
     { el: document.getElementById('injectBadge'), delay: 650 },
+    { el: document.getElementById('versionLabel'), delay: 1000 },
   ];
 
   sequence.forEach(({ el, delay }) => {
@@ -123,4 +124,14 @@ document.addEventListener('DOMContentLoaded', () => {
   build();
   let t = null;
   window.addEventListener('resize', () => { clearTimeout(t); t = setTimeout(build, 120); });
+})();
+
+(function initVersion() {
+  const el = document.getElementById('versionLabel');
+  if (!el) return;
+  try {
+    const v = chrome.runtime.getManifest().version;
+    if (v) el.textContent = 'v' + v;
+  } catch (e) {
+  }
 })();

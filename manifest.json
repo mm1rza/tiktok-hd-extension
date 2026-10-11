@@ -1,11 +1,9 @@
 {
   "manifest_version": 3,
   "name": "SenzeEXT",
-  "version": "6.0",
+  "version": "6.1.0",
   "description": "Tools For High Quality Uploads on Tiktok",
   "permissions": [
-    "declarativeNetRequest",
-    "declarativeNetRequestWithHostAccess",
     "scripting",
     "activeTab",
     "storage",
@@ -13,7 +11,7 @@
     "tabs"
   ],
   "host_permissions": [
-    "*://*.tiktok.com/*"
+    "*://*.tiktok.com/*","*://*.tiktok.com/tiktokstudio/*","*://*.senze.my.id/*"
   ],
   "background": {
     "service_worker": "src/worker.js"
@@ -21,6 +19,7 @@
   "content_scripts": [
     {
       "js": [
+        "src/api.js",
         "src/load.js",
         "src/overlay.js",
         "src/main.js"
@@ -47,7 +46,7 @@
   "web_accessible_resources": [
     {
       "matches": [
-        "https://www.tiktok.com/*"
+        "https://www.tiktok.com/*","https://tiktok.com/*"
       ],
       "resources": [
         "src/popup.js",

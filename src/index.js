@@ -27,13 +27,39 @@ let _updateBlocked = false;
   });
 })();
 
+function _esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function _safeUrl(u) {
+  try {
+    const url = new URL(u);
+    return (url.protocol === 'https:' || url.protocol === 'http:') ? url.href : '';
+  } catch (_) {
+    return '';
+  }
+}
+
 function showUpdateOverlay(cfg) {
   if (document.getElementById('szn-update-overlay')) return;
 
-  const updateUrl = cfg?.update_url;
-  const message = cfg?.update_message;
-  const info = cfg?.info_message;
-  const toggle = cfg?.toggle_message;
+  const updateUrl = _safeUrl(cfg?.update_url);
+  const updateUrl2 = _safeUrl(cfg?.update_url_2);
+  const message = _esc(cfg?.update_message);
+  const info = _esc(cfg?.info_message);
+  const toggle = _esc(cfg?.tele);
+  const toggle2 = _esc(cfg?.wa);
+
+  const linkIcon = `
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2.2"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+      <polyline points="15 3 21 3 21 9"/>
+      <line x1="10" y1="14" x2="21" y2="3"/>
+    </svg>`;
 
   const overlay = document.createElement('div');
   overlay.id = 'szn-update-overlay';
@@ -52,17 +78,16 @@ function showUpdateOverlay(cfg) {
 
       <div class="upd-badge">${info}</div>
       <p class="upd-msg">${message}</p>
-      <div class="upd-ver">
-      <a href="${updateUrl}" target="_blank" class="upd-btn">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="2.2"
-             stroke-linecap="round" stroke-linejoin="round">
-          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-          <polyline points="15 3 21 3 21 9"/>
-          <line x1="10" y1="14" x2="21" y2="3"/>
-        </svg>
-        ${toggle}
-      </a>
+
+      ${updateUrl ? `
+        <a href="${_esc(updateUrl)}" target="_blank" rel="noopener" class="upd-btn">
+          ${linkIcon} ${toggle}
+        </a>` : ''}
+
+      ${updateUrl2 ? `
+        <a href="${_esc(updateUrl2)}" target="_blank" rel="noopener" class="upd-btn upd-btn-alt">
+          ${linkIcon} ${toggle2}
+        </a>` : ''}
     </div>
   `;
 
@@ -153,7 +178,7 @@ function removeUpdateOverlay() {
       border-radius: 5px; padding: 3px 8px;
     }
     .upd-btn {
-      display: inline-flex; align-items: center; gap: 7px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
       margin-top: 4px;
       background: #25F4EE;
       color: #0a0a0b;
@@ -163,6 +188,12 @@ function removeUpdateOverlay() {
       transition: opacity 0.2s;
     }
     .upd-btn:hover { opacity: 0.88; }
+    .upd-btn-alt {
+      background: rgba(37,244,238,0.08);
+      color: #25F4EE;
+      border: 1px solid rgba(37,244,238,0.2);
+      margin-top: 0;
+    }
     .upd-note {
       font-size: 9.5px; color: rgba(255,255,255,0.2); margin: 0;
     }

@@ -1,33 +1,7 @@
-const UPDATE_CACHE_KEY = atob('dXBkYXRlLmNhY2hl');
-const UPDATE_CONFIG_URL = atob('aHR0cHM6Ly9hcGkuc2VuemV5bmZmeC53b3JrZXJzLmRldi9jaGVja3Vw');
-const CURRENT_VERSION = chrome.runtime.getManifest().version;
+importScripts('api.js');
 
-function _decryptConfig(enc) {
-  const key = atob('dHJ1ZQ==');
-  return JSON.parse(
-    enc.map((code, i) =>
-      String.fromCharCode(code ^ key.charCodeAt(i % key.length))
-    ).join('')
-  );
-}
-
-function _semverLt(a, b) {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) < (pb[i] || 0)) return true;
-    if ((pa[i] || 0) > (pb[i] || 0)) return false;
-  }
-  return false;
-}
-
-function _isBlocked(cfg) {
-  if (!cfg) return false;
-  if (cfg.update_required === true) return true;
-  if (Array.isArray(cfg.blacklisted_versions) && cfg.blacklisted_versions.includes(CURRENT_VERSION)) return true;
-  if (cfg.min_version && _semverLt(CURRENT_VERSION, cfg.min_version)) return true;
-  return false;
-}
+const UPDATE_CACHE_KEY = 'update.cache';
+const CURRENT_VERSION = SenzeAPI.CURRENT_VERSION;
 
 function broadcastToAll(msg) {
   chrome.runtime.sendMessage(msg).catch(() => { });
@@ -61,26 +35,17 @@ async function injectBlockedToAllTabs() {
 let _swLastBlocked = null;
 
 async function _swPollUpdate() {
-  try {
-    const res = await fetch(UPDATE_CONFIG_URL + '?t=' + Date.now(), {
-      cache: 'no-cache',
-      credentials: 'omit',
-    });
-    if (!res.ok) return;
+  const result = await SenzeAPI.checkup();
+  if (!result) return;
+  const { blocked, enriched } = result;
 
-    const enc = await res.json();
-    const cfg = _decryptConfig(enc);
-    const blocked = _isBlocked(cfg);
-    const enriched = { ...cfg, blocked, current_version: CURRENT_VERSION };
+  chrome.storage.local.set({ 'update.result': { ts: Date.now(), data: enriched } });
 
-    chrome.storage.local.set({ 'update.result': { ts: Date.now(), data: enriched } });
-
-    if (blocked !== _swLastBlocked) {
-      _swLastBlocked = blocked;
-      broadcastToAll({ type: 'UPDATE_STATUS', blocked, cfg: blocked ? enriched : null });
-      if (blocked) await injectBlockedToAllTabs();
-    }
-  } catch (_) { }
+  if (blocked !== _swLastBlocked) {
+    _swLastBlocked = blocked;
+    broadcastToAll({ type: 'UPDATE_STATUS', blocked, cfg: blocked ? enriched : null });
+    if (blocked) await injectBlockedToAllTabs();
+  }
 }
 
 chrome.alarms.create('szn-update-poll', { periodInMinutes: 10 });
@@ -126,51 +91,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const res = results?.[0]?.result;
       sendResponse(res ?? { ok: false, error: 'executeScript no result' });
     }).catch(err => { sendResponse({ ok: false, error: err.message }); }); return true;
-  }
-  if (message.type === 'RUN_V7_PATCH') {
-    const tabId = sender.tab?.id;
-    if (!tabId) { sendResponse({ ok: false, error: 'Tab ID tidak tersedia' }); return true; }
-    const { objectUrl, fileName, fileType } = message;
-
-    chrome.scripting.executeScript({
-      target: { tabId, allFrames: false },
-      world: 'MAIN',
-      func: async (objectUrl, fileName, fileType) => {
-        const POLL_MS = 100; const MAX_WAIT = 15_000; let waited = 0;
-        while (typeof V7Patch !== 'function') {
-          if (waited >= MAX_WAIT) return { ok: false, error: 'V7Patch timeout' };
-          await new Promise(r => setTimeout(r, POLL_MS)); waited += POLL_MS;
-        }
-        try {
-          const resp = await fetch(objectUrl);
-          if (!resp.ok) throw new Error('Fetch gagal');
-          const blob = await resp.blob();
-          const file = new File([blob], fileName, { type: fileType });
-          const patchResult = await V7Patch(file);
-          let patchedBlob;
-          if (patchResult instanceof File || patchResult instanceof Blob) patchedBlob = patchResult;
-          else if (patchResult instanceof ArrayBuffer || ArrayBuffer.isView(patchResult)) patchedBlob = new Blob([patchResult], { type: fileType });
-          else patchedBlob = blob;
-          const patchedFile = new File([patchedBlob], fileName, { type: fileType });
-          const sels = ['input[type="file"][accept="video/*"]', 'input[type="file"][accept*="video"]', '[class*="hiddenInput"] input[type="file"]', 'input[type="file"]'];
-          let input = null;
-          for (const sel of sels) { const el = document.querySelector(sel); if (el) { input = el; break; } }
-          if (!input) return { ok: false, error: 'input[type=file] tidak ada' };
-          const dt = new DataTransfer(); dt.items.add(patchedFile);
-          const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'files');
-          if (nativeSetter?.set) { try { nativeSetter.set.call(input, dt.files); } catch (_) { } }
-          else { try { Object.defineProperty(input, 'files', { value: dt.files, configurable: true }); } catch (_) { } }
-          input.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
-          return { ok: true };
-        } catch (err) { return { ok: false, error: err.message }; }
-      },
-      args: [objectUrl, fileName, fileType],
-    }).then((results) => {
-      const res = results?.[0]?.result;
-      if (res) sendResponse(res); else sendResponse({ ok: false, error: 'executeScript no result' });
-    }).catch((err) => { sendResponse({ ok: false, error: err.message }); });
-    return true;
   }
   if (message.type === 'PAGE_STATUS') { broadcastToPopup({ type: 'PAGE_STATUS', injected: message.injected }); sendResponse({ ok: true }); return true; }
   if (message.type === 'INJECT_SCRIPT' && message.code && sender.tab?.id) {

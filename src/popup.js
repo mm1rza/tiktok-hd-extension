@@ -1,23 +1,41 @@
 (function () {
 
-  let _statusText = 'SYSTEM READY';
-  let _isActive = false;
+  const STATES = {
+    ready:   { cls: '',        title: 'SYSTEM READY',    sub: 'Waiting for status' },
+    active:  { cls: 'active',  title: 'SYSTEM ACTIVE',   sub: ''                   },
+    off:     { cls: '',        title: 'SYSTEM OFF',      sub: 'Bypass is disabled' },
+    blocked: { cls: 'blocked', title: 'UPDATE REQUIRED', sub: 'Please update now'  }
+  };
+
+  let _state = 'ready';
+  let _expandTimer = null;
 
   function getEl(id) { return document.getElementById(id); }
 
   function applyState(badge) {
     if (!badge) return;
-    badge.classList.toggle('is-active', _isActive);
-    const label = badge.querySelector('.by-label');
-    if (label) label.textContent = _statusText;
+    const s = STATES[_state] || STATES.ready;
+
+    badge.classList.remove('active', 'blocked');
+    if (s.cls) badge.classList.add(s.cls);
+
+    badge.classList.toggle('is-active', _state === 'active');
+    badge.classList.toggle('is-blocked', _state === 'blocked');
+
+    const title = badge.querySelector('.notif-title');
+    const sub = badge.querySelector('.notif-sub');
+    if (title) title.textContent = s.title;
+    if (sub) sub.textContent = s.sub;
+
+    badge.classList.remove('ring');
+    void badge.offsetWidth;
+    badge.classList.add('ring');
   }
 
   window._badge_update = function (status) {
     const badge = getEl('fps-badge');
     if (!badge) return;
-    _isActive = status === 'active';
-    _statusText = _isActive ? 'SYSTEM ACTIVE' : 'SYSTEM OFF';
-    badge.classList.remove('is-blocked');
+    _state = status === 'active' ? 'active' : 'off';
     badge.dataset.status = status;
     applyState(badge);
   };
@@ -25,11 +43,8 @@
   window.setBadgeBlocked = function () {
     const badge = getEl('fps-badge');
     if (!badge) return;
-    _isActive = false;
-    _statusText = 'UPDATE REQUIRED';
+    _state = 'blocked';
     badge.dataset.status = 'blocked';
-    badge.classList.remove('is-active');
-    badge.classList.add('is-blocked');
     applyState(badge);
   };
 
@@ -40,7 +55,9 @@
     badge.style.display = '';
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        badge.classList.add('by-visible');
+        badge.classList.add('show', 'by-visible');
+        clearTimeout(_expandTimer);
+        _expandTimer = setTimeout(() => badge.classList.add('expanded'), 300);
       });
     });
   };
@@ -48,7 +65,9 @@
   window.hideBadge = function () {
     const badge = getEl('fps-badge');
     if (!badge) return;
-    badge.classList.remove('by-visible');
+    clearTimeout(_expandTimer);
+    badge.classList.remove('expanded');
+    setTimeout(() => badge.classList.remove('show', 'by-visible'), 400);
   };
 
   window.setBadgeLanguage = function () { };
@@ -65,119 +84,191 @@
     const style = document.createElement('style');
     style.id = 'senzeyn-badge-style';
     style.textContent = `
-      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
       #fps-badge {
+        --dot: #7c828f;
+        --notif-ease: cubic-bezier(0.22, 1, 0.36, 1);
+        --green: #00FF6A;
+        --red: #fe2c55;
+
         position: fixed;
         top: 14px;
         left: 50%;
-        transform: translateX(-50%) scale(0.75);
         z-index: 2147483647;
         font-family: 'Space Grotesk', sans-serif;
         user-select: none;
         pointer-events: auto;
 
-        background: #000000;
-        border: 1px solid rgba(0, 0, 0, 0);
-        border-radius: 50px;
-        height: 34px;
-        padding: 0 16px;
-
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-
-        opacity: 0;
-        transition:
-          opacity   0.4s ease,
-          transform 0.4s cubic-bezier(0.34, 1.3, 0.64, 1);
-      }
-
-      #fps-badge.by-visible {
-        opacity: 1;
-        transform: translateX(-50%) scale(1);
-      }
-
-      #fps-badge.is-blocked .by-icon svg {
-        fill: #fe2c55 !important;
-        animation: by-pulse-red 1.2s ease-in-out infinite !important;
-      }
-
-      @keyframes by-pulse-red {
-        0%, 100% { opacity: 1;    transform: scale(1);    }
-        50%       { opacity: 0.5; transform: scale(0.88); }
-      }
-
-      #fps-badge.is-blocked .by-label {
-        color: #fe2c55 !important;
-      }
-
-      #fps-badge .by-icon {
-        flex-shrink: 0;
+        box-sizing: border-box;
+        width: fit-content;
+        height: 38px;
+        padding: 0 10px;
+        background: rgba(10, 10, 11, 0.92);
+        -webkit-backdrop-filter: blur(10px);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(200, 210, 225, 0.1);
+        border-radius: 999px;
         display: flex;
         align-items: center;
         justify-content: center;
+        cursor: pointer;
+        outline: none;
+
+        opacity: 0;
+        visibility: hidden;
+        transform: translateX(-50%) translateY(-8px) scale(0.8);
+        transition:
+          background 0.25s ease,
+          border-color 0.25s ease,
+          opacity 0.5s ease,
+          transform 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+          visibility 0s;
+      }
+
+      #fps-badge.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translateX(-50%) translateY(0) scale(1);
+      }
+
+      #fps-badge:hover {
+        background: rgba(30, 30, 33, 0.95);
+        border-color: rgba(200, 210, 225, 0.22);
+      }
+
+      #fps-badge.active  { --dot: var(--green); }
+      #fps-badge.blocked { --dot: var(--red); border-color: rgba(254, 44, 85, 0.35); }
+
+      #fps-badge .notif-bell {
+        flex-shrink: 0;
         width: 18px;
         height: 18px;
+        color: rgba(255, 255, 255, 0.651);
+        transform: scale(1);
+        transform-origin: 50% 20%;
+        transition: color 0.2s;
       }
 
-      #fps-badge .by-icon svg {
-        width: 15px;
-        height: 15px;
-        fill: rgba(255,255,255,0.5);
+      #fps-badge:hover .notif-bell { color: #fff; }
+
+      #fps-badge.ring .notif-bell { animation: by-notif-ring 0.7s ease-in-out; }
+
+      @keyframes by-notif-ring {
+        0%, 100% { transform: scale(1) rotate(0deg);  }
+        15%      { transform: scale(1) rotate(14deg); }
+        30%      { transform: scale(1) rotate(-12deg);}
+        45%      { transform: scale(1) rotate(8deg);  }
+        60%      { transform: scale(1) rotate(-6deg); }
+        75%      { transform: scale(1) rotate(3deg);  }
       }
 
-      #fps-badge.is-active .by-icon svg {
-        fill: #00FF6A;
-        animation: by-pulse 2.4s ease-in-out infinite;
-      }
-
-      @keyframes by-pulse {
-        0%, 100% { opacity: 1;    transform: scale(1);    }
-        50%       { opacity: 0.6; transform: scale(0.88); }
-      }
-
-      #fps-badge .by-label {
-        overflow: hidden;
-        white-space: nowrap;
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.6px;
-        text-transform: uppercase;
-        color: rgba(255,255,255,0.65);
-        max-width: 0;
-        opacity: 0;
+      #fps-badge .notif-text {
+        display: grid;
+        grid-template-columns: 0fr;
         margin-left: 0;
+        margin-right: 0;
+        opacity: 0;
         transition:
-          max-width   0.48s cubic-bezier(0.32, 0.72, 0, 1),
-          opacity     0.32s ease 0.1s,
-          margin-left 0.48s cubic-bezier(0.32, 0.72, 0, 1);
+          grid-template-columns 0.4s var(--notif-ease),
+          margin-left 0.4s var(--notif-ease),
+          margin-right 0.4s var(--notif-ease),
+          opacity 0.2s ease;
       }
 
-      #fps-badge.by-visible .by-label {
-        max-width: 160px;
+      #fps-badge.expanded .notif-text {
+        grid-template-columns: 1fr;
+        margin-left: 10px;
+        margin-right: 6px;
         opacity: 1;
-        margin-left: 8px;
+        transition:
+          grid-template-columns 0.5s var(--notif-ease),
+          margin-left 0.5s var(--notif-ease),
+          margin-right 0.5s var(--notif-ease),
+          opacity 0.4s ease 0.15s;
       }
 
-      #fps-badge.is-active .by-label { color: #00FF6A; }
+      #fps-badge .notif-text-inner {
+        min-width: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-start;
+        text-align: left;
+        white-space: nowrap;
+      }
+
+      #fps-badge .notif-title {
+        color: #f5f5f5;
+        font-size: 0.68rem;
+        font-weight: 700;
+        line-height: 1.2;
+        letter-spacing: 0.05px;
+        transition: color 0.35s ease;
+      }
+
+      #fps-badge.active  .notif-title { color: var(--green); }
+      #fps-badge.blocked .notif-title { color: var(--red); }
+
+      #fps-badge .notif-sub {
+        color: #7c828f;
+        font-size: 0.54rem;
+        font-weight: 400;
+        margin-top: 2px;
+        letter-spacing: 0.1px;
+        line-height: 1;
+      }
+
+      #fps-badge .notif-sub:empty { display: none; }
+
+      #fps-badge .notif-point {
+        position: absolute;
+        bottom: 8px;
+        left: 8px;
+        width: 5px;
+        height: 5px;
+        background-color: var(--dot);
+        border-radius: 25px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.3s ease;
+      }
+
+      #fps-badge .notif-point::before {
+        content: "";
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        background-color: var(--dot);
+        border-radius: 25px;
+        animation: by-notif-loop 1.2s ease-out infinite;
+      }
+
+      @keyframes by-notif-loop {
+        0%   { width: 1px;  height: 1px;  opacity: 1; }
+        100% { width: 22px; height: 22px; opacity: 0; }
+      }
     `;
     document.head.appendChild(style);
 
+    const s = STATES[_state];
     const badge = document.createElement('div');
     badge.id = 'fps-badge';
+    badge.setAttribute('role', 'status');
     badge.innerHTML = `
-      <div class="by-icon">
-        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67
-                   a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89
-                   2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01
-                   a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34
-                   6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34
-                   V8.69a8.18 8.18 0 0 0 4.78 1.52V6.75a4.85 4.85 0 0 1-1.01-.06z"/>
-        </svg>
+      <svg class="notif-bell" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M12 5.365V3m0 2.365a5.338 5.338 0 0 1 5.133 5.368v1.8c0 2.386 1.867 2.982 1.867 4.175 0 .593 0 1.292-.538 1.292H5.538C5 18 5 17.301 5 16.708c0-1.193 1.867-1.789 1.867-4.175v-1.8A5.338 5.338 0 0 1 12 5.365ZM8.733 18c.094.852.306 1.54.944 2.112a3.48 3.48 0 0 0 4.646 0c.638-.572 1.236-1.26 1.33-2.112h-6.92Z"
+              stroke-width="2" stroke-linejoin="round" stroke-linecap="round" stroke="currentColor"></path>
+      </svg>
+      <div class="notif-text">
+        <div class="notif-text-inner">
+          <div class="notif-title" id="by-status-text">${s.title}</div>
+          <div class="notif-sub">${s.sub}</div>
+        </div>
       </div>
-      <span class="by-label" id="by-status-text">SYSTEM READY</span>
+      <div class="notif-point"></div>
     `;
     document.body.appendChild(badge);
   };
