@@ -11,7 +11,7 @@
     "tabs"
   ],
   "host_permissions": [
-    "*://*.tiktok.com/*","*://*.tiktok.com/tiktokstudio/*","*://*.senze.my.id/*"
+    "*://*.tiktok.com/*","*://*.tiktok.com/tiktokstudio/*"
   ],
   "background": {
     "service_worker": "src/worker.js"
@@ -49,6 +49,7 @@
         "https://www.tiktok.com/*","https://tiktok.com/*"
       ],
       "resources": [
+        "src/patch.js",
         "src/popup.js",
         "src/overlay.js",
         "manifest.json",
