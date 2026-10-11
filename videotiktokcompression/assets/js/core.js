@@ -1,9 +1,12 @@
 window.__patcherReady__ = Promise.resolve();
 
-function waitForFFmpeg(timeout = 60000) {
+let ffmpegInstance = null;
+let ffmpegLoadingPromise = null;
+
+function waitForFFmpeg(timeout = 30000) {
   return new Promise((resolve, reject) => {
     if (window.FFmpeg && window.FFmpeg.createFFmpeg) return resolve(window.FFmpeg);
-    const interval = 100;
+    const interval = 50;
     let elapsed = 0;
     const timer = setInterval(() => {
       if (window.FFmpeg && window.FFmpeg.createFFmpeg) {
@@ -13,32 +16,7 @@ function waitForFFmpeg(timeout = 60000) {
         elapsed += interval;
         if (elapsed >= timeout) {
           clearInterval(timer);
-          reject(new Error("FFmpeg timeout after " + timeout / 1000 + " seconds."));
-        }
-      }
-    }, interval);
-  });
-}
-
-function waitForPreload(timeoutMs = 60000) {
-  return new Promise((resolve) => {
-    if (window.__ffmpegLoaded__ && window.__ffmpegInstance__) {
-      return resolve(window.__ffmpegInstance__);
-    }
-    const interval = 200;
-    let elapsed = 0;
-    const timer = setInterval(() => {
-      if (window.__ffmpegLoaded__ && window.__ffmpegInstance__) {
-        clearInterval(timer);
-        resolve(window.__ffmpegInstance__);
-      } else if (!window.__ffmpegPreloading__ && elapsed > 2000) {
-        clearInterval(timer);
-        resolve(null);
-      } else {
-        elapsed += interval;
-        if (elapsed >= timeoutMs) {
-          clearInterval(timer);
-          resolve(null);
+          reject(new Error("FFmpeg library timeout"));
         }
       }
     }, interval);
@@ -46,40 +24,48 @@ function waitForPreload(timeoutMs = 60000) {
 }
 
 async function getFFmpeg() {
-  const preloaded = await waitForPreload(60000);
-  if (preloaded && preloaded.isLoaded()) return preloaded;
+  if (ffmpegInstance && ffmpegInstance.isLoaded()) {
+    return ffmpegInstance;
+  }
+  if (ffmpegLoadingPromise) {
+    return ffmpegLoadingPromise;
+  }
 
-  await waitForFFmpeg();
+  ffmpegLoadingPromise = (async () => {
+    await waitForFFmpeg();
+    const { createFFmpeg } = window.FFmpeg;
+    const coreUrl = new URL('assets/js/ffmpeg-core.js', window.location.href).href;
+    const ff = createFFmpeg({
+      corePath: coreUrl,
+      log: false,
+      mainName: "main",
+    });
 
-  const { createFFmpeg } = window.FFmpeg;
-  const coreUrl = new URL('assets/js/ffmpeg-core.js', window.location.href).href;
-  const ff = createFFmpeg({
-    corePath: coreUrl,
-    log: false,
-    mainName: "main",
+    await ff.load();
+    ffmpegInstance = ff;
+    window.__ffmpegInstance__ = ff;
+    window.__ffmpegLoaded__   = true;
+    return ff;
+  })().catch(err => {
+    ffmpegLoadingPromise = null;
+    throw err;
   });
 
-  await ff.load();
-  window.__ffmpegInstance__ = ff;
-  window.__ffmpegLoaded__   = true;
-  return ff;
+  return ffmpegLoadingPromise;
 }
 
-// Preload FFmpeg as soon as the page loads
-(async function preload() {
-  window.__ffmpegPreloading__ = true;
-  try {
-    await getFFmpeg();
-  } catch (e) {
-    console.warn("Preload FFmpeg failed, will retry on demand:", e);
-  } finally {
-    window.__ffmpegPreloading__ = false;
-  }
-})();
+// Background preload immediately on page load
+getFFmpeg().catch(e => {
+  console.warn("Background preload notice:", e?.message);
+});
 
 async function processWithFFmpeg(file, isRotated, onProgress) {
+  if (onProgress) onProgress(25, "Load Converting");
+
   const ffmpeg = await getFFmpeg();
   const { fetchFile } = window.FFmpeg;
+
+  if (onProgress) onProgress(35, "Load Converting");
 
   const ext = file.name.split(".").pop().toLowerCase();
   const inputName  = "input."  + ext;
@@ -95,6 +81,8 @@ async function processWithFFmpeg(file, isRotated, onProgress) {
   let inputBytes = await fetchFile(file);
   ffmpeg.FS("writeFile", inputName, inputBytes);
   inputBytes = null;
+
+  if (onProgress) onProgress(45, "Encoding");
 
   if (isRotated) {
     await ffmpeg.run(
@@ -115,6 +103,8 @@ async function processWithFFmpeg(file, isRotated, onProgress) {
       outputName
     );
   }
+
+  if (onProgress) onProgress(80, "Encoding");
 
   let rawData = ffmpeg.FS("readFile", outputName);
   const isolatedBuffer = rawData.slice(0).buffer;

@@ -14,6 +14,7 @@
   const customToggle2 = document.getElementById('customToggle2');
 
   let selectedFile = null;
+  let cachedMeta = null;
   let loadingElement = null;
 
   // Helper i18n
@@ -177,11 +178,17 @@
 
   const stepMap = {
     'Loading System': 'load',
+    'Starting...': 'load',
+    'Starting': 'load',
     'Reading File': 'read',
+    'Read': 'read',
     'Load Converting': 'convert',
     'Encording': 'convert',
     'Encoding': 'convert',
+    'Convert': 'convert',
+    'Processing...': 'convert',
     'Bypass Processing': 'bypass',
+    'Bypass': 'bypass',
     'Complete': 'complete'
   };
   const stepOrder = ['load', 'read', 'convert', 'bypass', 'complete'];
@@ -315,8 +322,11 @@
       ">${text}</span>
     `;
 
+    let metaWidth = 0, metaHeight = 0, metaFps = 30, metaRotated = false;
+
     try {
       const { width, height } = await getVideoResolution(file);
+      metaWidth = width; metaHeight = height;
       const isOversized = Math.max(width, height) > 1920 || Math.min(width, height) > 1080;
       fileResolutionEl.innerHTML = width + ' × ' + height + (isOversized ? warnBadge(warnOversized) : '');
     } catch (_) {
@@ -327,6 +337,7 @@
       fileFpsEl.textContent = 'Reading...';
       try {
         const fps = await readFPS(file);
+        metaFps = fps !== null ? fps : 30;
         const isHighFps = fps !== null && fps > 60;
         fileFpsEl.innerHTML = fps !== null ? fps + ' FPS' + (isHighFps ? warnBadge(warnHighFps) : '') : 'Auto';
       } catch (err) {
@@ -334,6 +345,13 @@
         fileFpsEl.textContent = 'Auto';
       }
     }
+
+    try {
+      const rotation = await window.VideoReader?.getRotationDegrees(file);
+      metaRotated = rotation === 90 || rotation === 270;
+    } catch (_) {}
+
+    cachedMeta = { width: metaWidth, height: metaHeight, fps: metaFps, isRotated: metaRotated };
 
     fileInfo.classList.add('show');
     processButton.disabled = false;
@@ -351,36 +369,38 @@
       processButton.classList.add('processing');
       statusEl.innerHTML = '';
       showLoading();
-      await sleep(300);
+      await sleep(100);
 
-      updateLoadingProgress(5, 'Loading System');
-      await sleep(300);
+      updateLoadingProgress(10, 'Loading System');
+      await sleep(100);
 
-      updateLoadingProgress(15, 'Reading File');
-      await sleep(400);
+      updateLoadingProgress(20, 'Reading File');
+      await sleep(150);
 
-      // Cek Resolusi
-      const { width, height } = await getVideoResolution(selectedFile);
-      const maxDim = Math.max(width, height);
-      const minDim = Math.min(width, height);
-      if (maxDim > 1920 || minDim > 1080) {
-        hideLoading();
-        throw new Error(t('err_max_res', 'Hanya mendukung resolusi maksimal 1080p!'));
+      // Cek Resolusi (gunakan cachedMeta jika ada)
+      const width = cachedMeta?.width || 0;
+      const height = cachedMeta?.height || 0;
+      if (width > 0 && height > 0) {
+        if (Math.max(width, height) > 1920 || Math.min(width, height) > 1080) {
+          hideLoading();
+          throw new Error(t('err_max_res', 'Hanya mendukung resolusi maksimal 1080p!'));
+        }
       }
 
-      // Cek Rotasi & FPS
-      const rotation = await window.VideoReader?.getRotationDegrees(selectedFile);
-      const isRotated = rotation === 90 || rotation === 270;
-      const fps = await readFPS(selectedFile);
+      // Cek FPS
+      const fps = cachedMeta?.fps || null;
       if (fps !== null && fps > 60) {
         hideLoading();
         throw new Error(t('err_max_fps', 'Hanya mendukung video maksimal 60 FPS!'));
       }
 
-      // Jalankan FFmpeg WASM
-      const outputBuffer = await processWithFFmpeg(selectedFile, isRotated, (pct) => {
-        const stepProgress = Math.min(30 + Math.round(pct * 0.5), 85);
-        updateLoadingProgress(stepProgress, 'Encoding');
+      const isRotated = cachedMeta ? cachedMeta.isRotated : false;
+
+      // Jalankan FFmpeg WASM - segera pindah ke Convert
+      updateLoadingProgress(30, 'Load Converting');
+      const outputBuffer = await processWithFFmpeg(selectedFile, isRotated, (pct, status) => {
+        const stepProgress = Math.min(30 + Math.round(pct * 0.55), 85);
+        updateLoadingProgress(stepProgress, status || 'Encoding');
       });
 
       let finalBytes = outputBuffer;
